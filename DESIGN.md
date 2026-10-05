@@ -157,8 +157,8 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - `dragDropEnabled` を有効にしたとき、Windows で WebView 内の HTML5 DnD が無効になるか
 - `bundle.fileAssociations` の設定方法
 - ドラッグ&ドロップ(`onDragDropEvent`)とファイル選択ダイアログの実機動作
-- GitHub Actions 上での CI とリリースの実行(AppImage の生成を含む)
+- GitHub Actions 上でのリリースの実行(AppImage の生成を含む)。CI(`ci.yml`)は 2026-10-05 に Ubuntu / Windows / macOS で成功した
 - ファイルマネージャーのダブルクリックで `.md` が開くこと(`.desktop` の内容のみ確認)
 - macOS の `RunEvent::Opened` への対応
-- Windows / macOS での動作(Linux のみ確認)
+- Windows / macOS での GUI の動作(CI でビルドとテストのみ確認。Linux 以外では起動して確認していない)
 - mo の監視ライブラリが fsnotify か fswatcher か(mo の CLAUDE.md と go.mod の記述が食い違っている。ソース未読)

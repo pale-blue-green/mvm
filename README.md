@@ -123,6 +123,6 @@ pnpm tauri build --bundles deb    # 形式を指定
 
 ## 制限
 
-- 動作確認は Linux(WebKitGTK)のみ。Windows と macOS は未確認。
+- GUI の動作確認は Linux(WebKitGTK)のみ。Windows と macOS は、CI でビルド・clippy・テストが通ることまで確認している。
 - macOS で Finder からファイルを開く操作(`RunEvent::Opened`)には未対応。
 - コード署名と公証は未設定。
