@@ -1,15 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { type FileId, type OpenedFile } from "../domain/types";
+import { type FileId, type OpenedFile, type TabId } from "../domain/types";
 import { initialState, reducer } from "./reducer";
 
 const file = (name: string): OpenedFile => ({ id: name as FileId, path: `/d/${name}`, name });
 
 describe("reducer", () => {
-  it("ファイルを開くと loading で追加され、最後のファイルが選択される", () => {
+  it("保存済みセッションを復元し、ファイルは loading から始める", () => {
+    const state = reducer(initialState, {
+      type: "sessionRestored",
+      tabs: [{ id: "main" as TabId, title: "main", fileIds: ["a" as FileId, "b" as FileId], activeFileId: "a" as FileId }],
+      activeTabId: "main" as TabId,
+      files: [file("a"), file("b")],
+    });
+    expect(state.tabs[0]?.activeFileId).toBe("a");
+    expect(state.files["b" as FileId]?.status).toBe("loading");
+  });
+
+  it("tabs が空の復元は無視する", () => {
+    expect(reducer(initialState, { type: "sessionRestored", tabs: [], activeTabId: "main" as TabId, files: [] })).toBe(initialState);
+  });
+
+  it("ファイルを開くと loading で追加され、先頭のファイルが選択される", () => {
     const state = reducer(initialState, { type: "filesOpened", files: [file("a"), file("b")] });
     expect(state.tabs[0]?.fileIds).toEqual(["a", "b"]);
-    expect(state.tabs[0]?.activeFileId).toBe("b");
+    expect(state.tabs[0]?.activeFileId).toBe("a");
     expect(state.files["a" as FileId]?.status).toBe("loading");
+  });
+
+  it("select: false では表示中のファイルを維持する", () => {
+    let state = reducer(initialState, { type: "filesOpened", files: [file("a")] });
+    state = reducer(state, { type: "filesOpened", files: [file("b")], select: false });
+    expect(state.tabs[0]?.fileIds).toEqual(["a", "b"]);
+    expect(state.tabs[0]?.activeFileId).toBe("a");
   });
 
   it("既に開いているファイルは内容を保持し、重複して追加しない", () => {

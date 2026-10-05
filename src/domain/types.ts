@@ -19,7 +19,7 @@ export type FileEntry =
   | { status: "error"; file: OpenedFile; message: string };
 
 /**
- * M1 では tabs は常に1要素。
+ * M2 でも tabs は常に1要素 (タブ UI は未実装)。
  * ファイルの実体は AppState.files に1つだけ持ち、タブは FileId の並びだけを持つ。
  */
 export type Tab = {
@@ -34,6 +34,16 @@ export type AppState = {
   activeTabId: TabId;
   files: Record<FileId, FileEntry>;
 };
+
+/** Rust の `Startup` と対応 */
+export type Startup = {
+  tabs: Tab[];
+  activeTabId: TabId;
+  files: OpenedFile[];
+  cliFiles: OpenedFile[];
+};
+
+export type Heading = { id: string; depth: number; text: string };
 
 export const DEFAULT_TAB_ID = "main" as TabId;
 

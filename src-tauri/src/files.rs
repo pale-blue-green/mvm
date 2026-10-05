@@ -1,4 +1,4 @@
-//! 開いたファイルの登録と、CLI 引数からのパス解決。
+//! 開いたファイルの登録。
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -31,19 +31,9 @@ pub fn opened_file(path: &Path) -> OpenedFile {
     }
 }
 
-/// argv (先頭はプログラム名) から、存在する通常ファイルの正規化済み絶対パスを返す。
-/// 相対パスは `cwd` 基準で解決する。フラグ、存在しないパス、ディレクトリは無視する。
-pub fn resolve_args(args: &[String], cwd: &Path) -> Vec<PathBuf> {
-    args.iter()
-        .skip(1)
-        .filter(|arg| !arg.starts_with('-'))
-        .filter_map(|arg| resolve_path(arg, cwd))
-        .collect()
-}
-
-pub fn resolve_path(arg: &str, cwd: &Path) -> Option<PathBuf> {
-    let candidate = cwd.join(arg); // 絶対パスなら arg がそのまま採用される
-    let canonical = candidate.canonicalize().ok()?;
+/// `base` 基準でパスを解決し、存在する通常ファイルの正規化済み絶対パスを返す。
+pub fn resolve_path(arg: &str, base: &Path) -> Option<PathBuf> {
+    let canonical = base.join(arg).canonicalize().ok()?; // 絶対パスなら arg がそのまま採用される
     canonical.is_file().then_some(canonical)
 }
 
@@ -69,6 +59,10 @@ impl Registry {
 
     pub fn remove(&self, id: &str) -> Option<PathBuf> {
         self.files.lock().unwrap().remove(id)
+    }
+
+    pub fn contains_path(&self, path: &Path) -> bool {
+        self.files.lock().unwrap().values().any(|p| p == path)
     }
 
     /// 登録済みパスと一致する id を返す。
@@ -100,41 +94,27 @@ mod tests {
     }
 
     #[test]
-    fn resolve_args_handles_relative_flags_and_missing() {
+    fn resolve_path_handles_relative_absolute_and_directories() {
         let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().canonicalize().unwrap();
-        fs::write(cwd.join("a.md"), "# a").unwrap();
-        fs::create_dir(cwd.join("sub")).unwrap();
-        fs::write(cwd.join("sub").join("b.md"), "# b").unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        fs::create_dir(base.join("sub")).unwrap();
+        fs::write(base.join("a.md"), "x").unwrap();
+        fs::write(base.join("sub").join("b.md"), "x").unwrap();
 
-        let args: Vec<String> = [
-            "mvm",
-            "--flag",
-            "a.md",
-            "sub/../sub/b.md",
-            "missing.md",
-            "sub",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let resolved = resolve_args(&args, &cwd);
-
+        assert_eq!(resolve_path("a.md", &base), Some(base.join("a.md")));
         assert_eq!(
-            resolved,
-            vec![cwd.join("a.md"), cwd.join("sub").join("b.md")]
+            resolve_path("sub/../sub/b.md", &base),
+            Some(base.join("sub/b.md"))
         );
-    }
-
-    #[test]
-    fn resolve_args_accepts_absolute_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().canonicalize().unwrap();
-        let file = cwd.join("a.md");
-        fs::write(&file, "x").unwrap();
-        let args = vec!["mvm".to_string(), file.to_string_lossy().into_owned()];
-
-        assert_eq!(resolve_args(&args, Path::new("/nonexistent")), vec![file]);
+        assert_eq!(
+            resolve_path(
+                &base.join("a.md").to_string_lossy(),
+                Path::new("/nonexistent")
+            ),
+            Some(base.join("a.md"))
+        );
+        assert_eq!(resolve_path("missing.md", &base), None);
+        assert_eq!(resolve_path("sub", &base), None);
     }
 
     #[test]
@@ -142,6 +122,8 @@ mod tests {
         let registry = Registry::default();
         let file = registry.insert(Path::new("/tmp/a.md"));
         assert_eq!(registry.get(&file.id), Some(PathBuf::from("/tmp/a.md")));
+        assert!(registry.contains_path(Path::new("/tmp/a.md")));
+        assert!(!registry.contains_path(Path::new("/tmp/x.md")));
         assert_eq!(
             registry.ids_for_paths([Path::new("/tmp/a.md"), Path::new("/tmp/x.md")]),
             vec![file.id.clone()]

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { FileId, OpenedFile, TabId } from "../domain/types";
+import type { FileId, OpenedFile, Startup, TabId } from "../domain/types";
+import type { SessionPayload } from "./session";
 
 export type ReadResult =
   | { kind: "ok"; content: string }
@@ -9,12 +10,15 @@ export type ReadResult =
 
 type ReadErrorPayload = { kind: "missing" } | { kind: "failed"; message: string };
 
-export const takeInitialFiles = (): Promise<OpenedFile[]> => invoke("take_initial_files");
+export const getStartup = (): Promise<Startup> => invoke("get_startup");
 
-export const openPaths = (baseDir: string, paths: string[]): Promise<OpenedFile[]> =>
-  invoke("open_paths", { baseDir, paths });
+/** `recursive` はディレクトリを Markdown ファイルに展開するときの再帰指定 */
+export const openPaths = (baseDir: string, paths: string[], recursive: boolean): Promise<OpenedFile[]> =>
+  invoke("open_paths", { baseDir, paths, recursive });
 
 export const closeFile = (id: FileId): Promise<void> => invoke("close_file", { id });
+
+export const saveSession = (session: SessionPayload): Promise<void> => invoke("save_session", { ...session });
 
 export const readMarkdown = async (id: FileId): Promise<ReadResult> => {
   try {
@@ -25,7 +29,7 @@ export const readMarkdown = async (id: FileId): Promise<ReadResult> => {
   }
 };
 
-export type OpenFilesEvent = { files: OpenedFile[]; tabId?: TabId };
+export type OpenFilesEvent = { files: OpenedFile[]; tabId?: TabId; select: boolean };
 
 export const onOpenFiles = (handler: (event: OpenFilesEvent) => void): Promise<UnlistenFn> =>
   listen<OpenFilesEvent>("open-files", (event) => handler(event.payload));

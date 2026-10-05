@@ -1,7 +1,8 @@
 import { type AppState, type FileEntry, type FileId, type OpenedFile, type Tab, type TabId, DEFAULT_TAB_ID } from "../domain/types";
 
 export type Action =
-  | { type: "filesOpened"; files: OpenedFile[]; tabId?: TabId }
+  | { type: "sessionRestored"; tabs: Tab[]; activeTabId: TabId; files: OpenedFile[] }
+  | { type: "filesOpened"; files: OpenedFile[]; tabId?: TabId; select?: boolean }
   | { type: "fileLoaded"; id: FileId; content: string }
   | { type: "fileMissing"; id: FileId }
   | { type: "fileFailed"; id: FileId; message: string }
@@ -22,8 +23,14 @@ const updateTab = (state: AppState, tabId: TabId, update: (tab: Tab) => Tab): Ap
 const updateFile = (state: AppState, id: FileId, entry: FileEntry): AppState =>
   id in state.files ? { ...state, files: { ...state.files, [id]: entry } } : state;
 
+const toLoading = (files: OpenedFile[]): AppState["files"] =>
+  Object.fromEntries(files.map((file) => [file.id, { status: "loading", file } satisfies FileEntry])) as AppState["files"];
+
 export const reducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
+    case "sessionRestored":
+      // 保存済みセッションがない場合も Rust は既定のタブを1つ返すため、tabs が空になることはない
+      return action.tabs.length === 0 ? state : { tabs: action.tabs, activeTabId: action.activeTabId, files: toLoading(action.files) };
     case "filesOpened": {
       const tabId = action.tabId ?? state.activeTabId;
       const files = { ...state.files };
@@ -35,7 +42,7 @@ export const reducer = (state: AppState, action: Action): AppState => {
       const next = updateTab({ ...state, files }, tabId, (tab) => ({
         ...tab,
         fileIds: [...tab.fileIds, ...added.filter((id) => !tab.fileIds.includes(id))],
-        activeFileId: added.at(-1) ?? tab.activeFileId,
+        activeFileId: action.select === false ? tab.activeFileId : (added[0] ?? tab.activeFileId),
       }));
       return next;
     }

@@ -44,3 +44,14 @@ export const useTheme = () => {
 
   return { mode, cycle };
 };
+
+/** `<html class="dark">` の有無を購読する (Mermaid など、テーマに合わせて再描画するもの向け) */
+export const useIsDark = (): boolean => {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDark(document.documentElement.classList.contains("dark")));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+};

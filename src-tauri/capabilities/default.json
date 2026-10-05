@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "メインウィンドウの権限。ファイルアクセスは自前の command 経由のため fs プラグインは使わない",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "permissions": ["core:default", "opener:default", "dialog:default"]
 }

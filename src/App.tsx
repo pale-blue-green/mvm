@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar } from "./components/Sidebar";
+import { VIEWER_SCROLL_ID } from "./components/TocPanel";
 import { Viewer } from "./components/Viewer";
-import type { FileId } from "./domain/types";
-import { closeFile, onFileChanged, onOpenFiles, openPaths, readMarkdown, takeInitialFiles } from "./lib/ipc";
+import type { FileId, OpenedFile } from "./domain/types";
+import { closeFile, getStartup, onFileChanged, onOpenFiles, openPaths, readMarkdown, saveSession } from "./lib/ipc";
+import { toSessionPayload } from "./lib/session";
 import { useTheme } from "./lib/theme";
 import { initialState, reducer } from "./state/reducer";
 
 const THEME_LABEL = { system: "自動", light: "ライト", dark: "ダーク" } as const;
+const SESSION_SAVE_DELAY_MS = 300;
 
 export const App = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { mode, cycle } = useTheme();
+  const [restored, setRestored] = useState(false);
+  const [dragging, setDragging] = useState(false);
   // 同一ファイルの読み込みが重なったとき、最後に発行した結果だけを採用する
   const latestRequest = useRef(new Map<FileId, number>());
   const requestSeq = useRef(0);
@@ -34,28 +41,57 @@ export const App = () => {
     }
   }, []);
 
+  const openFiles = useCallback(
+    (files: OpenedFile[]) => {
+      if (files.length === 0) return;
+      dispatch({ type: "filesOpened", files });
+      for (const file of files) void load(file.id);
+    },
+    [load],
+  );
+
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
 
     const setup = async () => {
       const unlistenOpen = await onOpenFiles((event) => {
-        dispatch({ type: "filesOpened", files: event.files, tabId: event.tabId });
+        dispatch({ type: "filesOpened", files: event.files, tabId: event.tabId, select: event.select });
         for (const file of event.files) void load(file.id);
       });
       const unlistenChanged = await onFileChanged((id) => void load(id));
+      const unlistenDrop = await getCurrentWebview().onDragDropEvent(async (event) => {
+        switch (event.payload.type) {
+          case "enter":
+          case "over":
+            setDragging(true);
+            break;
+          case "leave":
+            setDragging(false);
+            break;
+          case "drop": {
+            setDragging(false);
+            // ディレクトリのドロップは配下の Markdown を再帰的に開く
+            openFiles(await openPaths("/", event.payload.paths, true));
+            break;
+          }
+        }
+      });
       if (disposed) {
         unlistenOpen();
         unlistenChanged();
+        unlistenDrop();
         return;
       }
-      unlisteners.push(unlistenOpen, unlistenChanged);
+      unlisteners.push(unlistenOpen, unlistenChanged, unlistenDrop);
 
-      // リスナー登録後に取得する。起動引数のファイルを取りこぼさない
-      // StrictMode の再マウントでも、1回しか取得できない初期ファイルを捨てないよう disposed は見ない
-      const initial = await takeInitialFiles();
-      dispatch({ type: "filesOpened", files: initial });
-      for (const file of initial) void load(file.id);
+      // リスナー登録後に取得する。起動引数のファイルを取りこぼさない。
+      // StrictMode の再マウントで2回呼ばれても、Rust は同じ内容を返す
+      const startup = await getStartup();
+      dispatch({ type: "sessionRestored", tabs: startup.tabs, activeTabId: startup.activeTabId, files: startup.files });
+      for (const file of startup.files) void load(file.id);
+      openFiles(startup.cliFiles);
+      setRestored(true);
     };
     void setup();
 
@@ -63,16 +99,39 @@ export const App = () => {
       disposed = true;
       for (const unlisten of unlisteners) unlisten();
     };
-  }, [load]);
+  }, [load, openFiles]);
+
+  // 復元が終わる前に保存すると、保存済みセッションを空の状態で上書きしてしまう
+  const lastSaved = useRef("");
+  useEffect(() => {
+    if (!restored) return;
+    const payload = toSessionPayload(state);
+    const serialized = JSON.stringify(payload);
+    if (serialized === lastSaved.current) return;
+    const timer = setTimeout(() => {
+      lastSaved.current = serialized;
+      void saveSession(payload);
+    }, SESSION_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state, restored]);
 
   const openRelative = useCallback(
-    async (baseDir: string, path: string) => {
-      const files = await openPaths(baseDir, [path]);
-      if (files.length === 0) return;
-      dispatch({ type: "filesOpened", files });
-      for (const file of files) void load(file.id);
+    async (baseDir: string, path: string) => openFiles(await openPaths(baseDir, [path], false)),
+    [openFiles],
+  );
+
+  const pickAndOpen = useCallback(
+    async (directory: boolean) => {
+      const selected = await open({
+        multiple: !directory,
+        directory,
+        filters: directory ? undefined : [{ name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd"] }],
+      });
+      if (selected === null) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      openFiles(await openPaths("/", paths, true));
     },
-    [load],
+    [openFiles],
   );
 
   const close = useCallback(async (id: FileId) => {
@@ -85,8 +144,15 @@ export const App = () => {
   const activeEntry = tab.activeFileId === null ? null : (state.files[tab.activeFileId] ?? null);
 
   return (
-    <div className="flex h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <Sidebar tab={tab} files={state.files} onSelect={(id) => dispatch({ type: "fileSelected", id })} onClose={(id) => void close(id)} />
+    <div className="relative flex h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <Sidebar
+        tab={tab}
+        files={state.files}
+        onSelect={(id) => dispatch({ type: "fileSelected", id })}
+        onClose={(id) => void close(id)}
+        onOpenFiles={() => void pickAndOpen(false)}
+        onOpenFolder={() => void pickAndOpen(true)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 text-sm dark:border-neutral-800">
           <span className="truncate text-neutral-500" title={activeEntry?.file.path}>
@@ -96,12 +162,17 @@ export const App = () => {
             テーマ: {THEME_LABEL[mode]}
           </button>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main id={VIEWER_SCROLL_ID} className="min-h-0 flex-1 overflow-y-auto">
           <ErrorBoundary resetKey={tab.activeFileId ?? ""}>
             <Viewer entry={activeEntry} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
           </ErrorBoundary>
         </main>
       </div>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center border-4 border-dashed border-blue-500 bg-blue-500/10 text-xl text-blue-600 dark:text-blue-400">
+          ここにドロップして開く
+        </div>
+      )}
     </div>
   );
 };

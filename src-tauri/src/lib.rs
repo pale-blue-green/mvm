@@ -1,28 +1,63 @@
 mod files;
+mod pattern;
+mod scan;
+mod session;
 mod watcher;
 
-use files::{resolve_args, resolve_path, OpenedFile, Registry};
+use files::{file_id, resolve_path, OpenedFile, Registry};
+use pattern::WatchPattern;
+use scan::{expand, parse_args, scan_pattern, CliOptions};
 use serde::Serialize;
+use session::{SessionFile, SessionTab};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use watcher::DirWatcher;
+
+const DEFAULT_TAB_ID: &str = "main";
 
 struct AppState {
     registry: Registry,
     watcher: DirWatcher,
-    /// 起動引数で渡されたファイル。フロントが `take_initial_files` で1回だけ受け取る。
-    initial_files: Mutex<Vec<OpenedFile>>,
+    patterns: Mutex<Vec<WatchPattern>>,
+    /// ユーザーが閉じたファイル。監視パターンが再度開かないようにする
+    closed: Mutex<HashSet<PathBuf>>,
+    session_path: PathBuf,
+    /// 起動時の状態。React の StrictMode は開発時に初期化を2回実行するため、取り出さずに複製して返す
+    startup: Mutex<Option<Startup>>,
 }
 
 #[derive(Serialize, Clone)]
 struct OpenFilesPayload {
     files: Vec<OpenedFile>,
+    /// 先頭のファイルを選択するか。監視パターンによる自動追加では表示中のファイルを維持する
+    select: bool,
 }
 
 #[derive(Serialize, Clone)]
 struct FileChangedPayload {
     id: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RestoredTab {
+    id: String,
+    title: String,
+    file_ids: Vec<String>,
+    active_file_id: Option<String>,
+}
+
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct Startup {
+    tabs: Vec<RestoredTab>,
+    active_tab_id: String,
+    /// `tabs` が参照するファイル
+    files: Vec<OpenedFile>,
+    /// 起動引数で渡されたファイル。復元後に開いて選択する
+    cli_files: Vec<OpenedFile>,
 }
 
 #[derive(Serialize)]
@@ -33,8 +68,13 @@ enum ReadError {
 }
 
 /// ファイルを登録し、親ディレクトリの監視と asset protocol のスコープ追加を行う。
+/// 明示的に開かれたものとして扱うため、閉じた履歴からは外す。
 fn register_file(app: &AppHandle, path: &Path) -> OpenedFile {
     let state = app.state::<AppState>();
+    state.closed.lock().unwrap().remove(path);
+    if state.registry.contains_path(path) {
+        return state.registry.insert(path); // 監視は登録済み。参照カウントを増やさない
+    }
     let file = state.registry.insert(path);
     if let Err(err) = state.watcher.watch_file(path) {
         eprintln!("watch failed: {}: {err}", path.display());
@@ -52,19 +92,167 @@ fn register_all(app: &AppHandle, paths: Vec<PathBuf>) -> Vec<OpenedFile> {
     paths.iter().map(|path| register_file(app, path)).collect()
 }
 
-#[tauri::command]
-fn take_initial_files(state: State<'_, AppState>) -> Vec<OpenedFile> {
-    std::mem::take(&mut *state.initial_files.lock().unwrap())
+fn add_patterns(app: &AppHandle, patterns: Vec<WatchPattern>) {
+    let state = app.state::<AppState>();
+    for pattern in patterns {
+        let mut registered = state.patterns.lock().unwrap();
+        if registered.contains(&pattern) {
+            continue;
+        }
+        registered.push(pattern.clone());
+        drop(registered);
+        if let Err(err) = state.watcher.watch_dir(&pattern.base, pattern.recursive) {
+            eprintln!("watch failed: {}: {err}", pattern.base.display());
+        }
+    }
 }
 
-/// 相対リンクなどでアプリ内から開くパスを登録する。`base_dir` 基準で解決し、存在しないものは除外する。
+/// ファイル変更の通知と、監視パターンに一致する新規ファイルの自動追加。
+fn on_fs_event(app: &AppHandle, paths: Vec<PathBuf>) {
+    let state = app.state::<AppState>();
+    for id in state
+        .registry
+        .ids_for_paths(paths.iter().map(PathBuf::as_path))
+    {
+        let _ = app.emit("file-changed", FileChangedPayload { id });
+    }
+
+    let patterns = state.patterns.lock().unwrap().clone();
+    if patterns.is_empty() {
+        return;
+    }
+    let mut new_paths: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        let is_new = !state.registry.contains_path(&path)
+            && !state.closed.lock().unwrap().contains(&path)
+            && !new_paths.contains(&path)
+            && path.is_file()
+            && patterns.iter().any(|pattern| pattern.matches(&path));
+        if is_new {
+            new_paths.push(path);
+        }
+    }
+    if !new_paths.is_empty() {
+        let files = register_all(app, new_paths);
+        let _ = app.emit(
+            "open-files",
+            OpenFilesPayload {
+                files,
+                select: false,
+            },
+        );
+    }
+}
+
+/// 保存済みセッション、監視パターンの再走査、起動引数から起動時の状態を組み立てる。
+fn build_startup(app: &AppHandle, args: &[String], cwd: &Path) -> Startup {
+    let state = app.state::<AppState>();
+    let mut files: Vec<OpenedFile> = Vec::new();
+    let mut tabs: Vec<RestoredTab> = Vec::new();
+    let mut active_tab_id = DEFAULT_TAB_ID.to_string();
+
+    if let Some(saved) = session::load(&state.session_path) {
+        state.closed.lock().unwrap().extend(saved.closed);
+        add_patterns(app, saved.patterns);
+        active_tab_id = saved.active_tab_id;
+        for tab in saved.tabs {
+            let mut file_ids = Vec::new();
+            for path in tab.files.iter().filter(|path| path.is_file()) {
+                let file = register_file(app, path);
+                file_ids.push(file.id.clone());
+                files.push(file);
+            }
+            tabs.push(RestoredTab {
+                id: tab.id,
+                title: tab.title,
+                file_ids,
+                active_file_id: tab
+                    .active_file
+                    .filter(|path| path.is_file())
+                    .map(|path| file_id(&path)),
+            });
+        }
+    }
+    if !tabs.iter().any(|tab| tab.id == active_tab_id) {
+        if tabs.is_empty() {
+            tabs.push(RestoredTab {
+                id: DEFAULT_TAB_ID.to_string(),
+                title: DEFAULT_TAB_ID.to_string(),
+                file_ids: Vec::new(),
+                active_file_id: None,
+            });
+        }
+        active_tab_id = tabs[0].id.clone();
+    }
+
+    // 前回終了後に監視パターンへ追加されたファイルを、アクティブなタブへ加える
+    let patterns = state.patterns.lock().unwrap().clone();
+    for pattern in patterns {
+        for path in scan_pattern(&pattern) {
+            if state.registry.contains_path(&path) || state.closed.lock().unwrap().contains(&path) {
+                continue;
+            }
+            let file = register_file(app, &path);
+            if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_tab_id) {
+                tab.file_ids.push(file.id.clone());
+            }
+            files.push(file);
+        }
+    }
+
+    let parsed = parse_args(args);
+    let expansion = expand(&parsed.targets, cwd, parsed.options);
+    let cli_files = register_all(app, expansion.files);
+    if parsed.options.watch {
+        add_patterns(app, expansion.patterns);
+    }
+
+    Startup {
+        tabs,
+        active_tab_id,
+        files,
+        cli_files,
+    }
+}
+
 #[tauri::command]
-fn open_paths(app: AppHandle, base_dir: String, paths: Vec<String>) -> Vec<OpenedFile> {
+fn get_startup(state: State<'_, AppState>) -> Startup {
+    state.startup.lock().unwrap().clone().unwrap_or_default()
+}
+
+/// ドラッグ&ドロップ、ダイアログ、相対リンクで開くパスを登録する。
+/// `base_dir` 基準で解決し、ディレクトリは Markdown ファイルに展開する。存在しないものは除外する。
+#[tauri::command]
+fn open_paths(
+    app: AppHandle,
+    base_dir: String,
+    paths: Vec<String>,
+    recursive: bool,
+) -> Vec<OpenedFile> {
     let base = Path::new(&base_dir);
-    let resolved = paths
-        .iter()
-        .filter_map(|path| resolve_path(path, base))
-        .collect();
+    let mut resolved: Vec<PathBuf> = Vec::new();
+    for path in &paths {
+        // 括弧などを含む実在のファイル名を glob として解釈しないよう、先にリテラルで解決する
+        let expanded = match resolve_path(path, base) {
+            Some(file) => vec![file],
+            None => {
+                expand(
+                    std::slice::from_ref(path),
+                    base,
+                    CliOptions {
+                        recursive,
+                        watch: false,
+                    },
+                )
+                .files
+            }
+        };
+        for file in expanded {
+            if !resolved.contains(&file) {
+                resolved.push(file);
+            }
+        }
+    }
     register_all(&app, resolved)
 }
 
@@ -83,7 +271,20 @@ fn read_markdown(state: State<'_, AppState>, id: String) -> Result<String, ReadE
 fn close_file(state: State<'_, AppState>, id: String) {
     if let Some(path) = state.registry.remove(&id) {
         state.watcher.unwatch_file(&path);
+        state.closed.lock().unwrap().insert(path);
     }
+}
+
+#[tauri::command]
+fn save_session(
+    state: State<'_, AppState>,
+    tabs: Vec<SessionTab>,
+    active_tab_id: String,
+) -> Result<(), String> {
+    let patterns = state.patterns.lock().unwrap().clone();
+    let closed: Vec<PathBuf> = state.closed.lock().unwrap().iter().cloned().collect();
+    let session = SessionFile::new(tabs, active_tab_id, patterns, closed);
+    session::save(&state.session_path, &session).map_err(|err| err.to_string())
 }
 
 fn focus_main_window(app: &AppHandle) {
@@ -101,9 +302,20 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let files = register_all(app, resolve_args(&argv, Path::new(&cwd)));
+            let parsed = parse_args(&argv);
+            let expansion = expand(&parsed.targets, Path::new(&cwd), parsed.options);
+            let files = register_all(app, expansion.files);
+            if parsed.options.watch {
+                add_patterns(app, expansion.patterns);
+            }
             if !files.is_empty() {
-                let _ = app.emit("open-files", OpenFilesPayload { files });
+                let _ = app.emit(
+                    "open-files",
+                    OpenFilesPayload {
+                        files,
+                        select: true,
+                    },
+                );
             }
             focus_main_window(app);
         }));
@@ -111,34 +323,42 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let handle = app.handle().clone();
+            // デバウンサのスレッドで重い処理をしないよう、イベントは別スレッドへ渡す
+            let (sender, receiver) = mpsc::channel::<Vec<PathBuf>>();
             let watcher = DirWatcher::new(move |paths| {
-                let state = handle.state::<AppState>();
-                let ids = state
-                    .registry
-                    .ids_for_paths(paths.iter().map(PathBuf::as_path));
-                for id in ids {
-                    let _ = handle.emit("file-changed", FileChangedPayload { id });
-                }
+                let _ = sender.send(paths);
             })?;
+            let session_path = app.path().app_data_dir()?.join("session.json");
             app.manage(AppState {
                 registry: Registry::default(),
                 watcher,
-                initial_files: Mutex::new(Vec::new()),
+                patterns: Mutex::new(Vec::new()),
+                closed: Mutex::new(HashSet::new()),
+                session_path,
+                startup: Mutex::new(None),
+            });
+
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                for paths in receiver {
+                    on_fs_event(&handle, paths);
+                }
             });
 
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir()?;
-            let files = register_all(app.handle(), resolve_args(&args, &cwd));
-            *app.state::<AppState>().initial_files.lock().unwrap() = files;
+            let startup = build_startup(app.handle(), &args, &cwd);
+            *app.state::<AppState>().startup.lock().unwrap() = Some(startup);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            take_initial_files,
+            get_startup,
             open_paths,
             read_markdown,
-            close_file
+            close_file,
+            save_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running mvm");
