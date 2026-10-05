@@ -7,7 +7,8 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+    # WebKitGTK を使うため対象は Linux のみ
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         # Tauri v2 の Linux 依存 (https://wiki.nixos.org/wiki/Tauri)
@@ -25,8 +26,19 @@
           webkitgtk_4_1
           openssl
         ];
+        mvm = pkgs.callPackage ./nix/package.nix { src = self; };
       in
       {
+        packages = {
+          inherit mvm;
+          default = mvm;
+        };
+
+        apps.default = {
+          type = "app";
+          program = "${mvm}/bin/mvm";
+        };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             pkg-config
@@ -49,5 +61,10 @@
           '';
         };
       }
-    );
+    )
+    // {
+      overlays.default = final: _prev: {
+        mvm = final.callPackage ./nix/package.nix { src = self; };
+      };
+    };
 }

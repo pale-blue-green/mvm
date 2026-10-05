@@ -45,11 +45,40 @@ mvm 'docs/**/*.md'            # glob(シェルに展開させないよう引用�
 
 macOS では `Ctrl` の代わりに `Cmd` を使える。
 
+## インストール(Nix)
+
+Linux(x86_64 / aarch64)向けに flake でパッケージを提供している。
+
+```sh
+nix run .                      # ビルドして起動(引数はそのまま渡る: nix run . -- README.md)
+nix profile install .          # ユーザー環境にインストール
+nix build .                    # ./result/bin/mvm を作る
+```
+
+リモートの flake として使う場合は、`.` を `github:<owner>/mvm` などのフレーク参照に置き換える。
+
+NixOS や home-manager では、flake の入力に追加して `overlays.default` を適用するか、`packages.${system}.default` を直接参照する。
+
+```nix
+{
+  inputs.mvm.url = "path:/path/to/mvm"; # または github:<owner>/mvm
+  # ...
+  # nixpkgs.overlays = [ inputs.mvm.overlays.default ];
+  # environment.systemPackages = [ pkgs.mvm ];   # overlay を適用した場合
+  # environment.systemPackages = [ inputs.mvm.packages.${system}.default ];  # 直接参照する場合
+}
+```
+
+- ビルドは `nix/package.nix`(`rustPlatform.buildRustPackage` + `cargo-tauri.hook` + `fetchPnpmDeps`)で行う。deb 形式でバンドルした `.desktop` とアイコンも `share/` に入る。
+- ソースは flake の `self`(Git で追跡しているファイルのみ)。新しいファイルを追加したら `git add` してからビルドする。
+- `pnpm-lock.yaml` を更新したら、`nix/package.nix` の `pnpmDeps.hash` を更新する。`hash = lib.fakeHash;` にしてビルドすると、エラーに正しい値(`got:`)が表示される。
+- ビルド中に `cargo test` が実行される。
+
 ## 開発
 
 必要なもの: Rust、Node.js 24、pnpm、Tauri の[システム依存パッケージ](https://v2.tauri.app/start/prerequisites/)。
 
-NixOS または Nix を使う場合は、`flake.nix` と direnv で一式が揃う。
+NixOS または Nix を使う場合は、`flake.nix` の devShell と direnv で一式が揃う。
 
 ```sh
 direnv allow          # または nix develop
