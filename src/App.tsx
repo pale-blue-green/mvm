@@ -138,6 +138,20 @@ export const App = () => {
     [openFiles],
   );
 
+  const toggleSidebar = useCallback(() => updateSettings((current) => ({ ...current, sidebarOpen: !current.sidebarOpen })), [updateSettings]);
+  const showSidebar = useCallback(() => updateSettings((current) => (current.sidebarOpen ? current : { ...current, sidebarOpen: true })), [updateSettings]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleSidebar]);
+
   const close = useCallback(async (id: FileId) => {
     dispatch({ type: "fileClosed", id });
     await closeFile(id);
@@ -156,12 +170,26 @@ export const App = () => {
         onClose={(id) => void close(id)}
         onOpenFiles={() => void pickAndOpen(false)}
         onOpenFolder={() => void pickAndOpen(true)}
+        open={settings.sidebarOpen}
+        onRequestOpen={showSidebar}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 text-sm dark:border-neutral-800">
-          <span className="mr-4 truncate text-neutral-500" title={activeEntry?.file.path}>
-            {activeEntry?.file.path ?? ""}
-          </span>
+          <div className="mr-4 flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-pressed={settings.sidebarOpen}
+              aria-label="サイドバーを表示"
+              title="サイドバーの表示/非表示 (Ctrl+B)"
+              className="shrink-0 rounded px-2 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800"
+            >
+              ☰
+            </button>
+            <span className="truncate text-neutral-500" title={activeEntry?.file.path}>
+              {activeEntry?.file.path ?? ""}
+            </span>
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             <DocumentToolbar
               settings={settings}

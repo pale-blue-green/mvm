@@ -6,9 +6,9 @@ export const FONT_SIZE_LABELS = ["小", "中", "大", "特大"] as const;
 export type FontSizeIndex = 0 | 1 | 2 | 3;
 export type ContentWidth = "narrow" | "wide";
 
-export type Settings = { fontSize: FontSizeIndex; width: ContentWidth };
+export type Settings = { fontSize: FontSizeIndex; width: ContentWidth; sidebarOpen: boolean };
 
-export const DEFAULT_SETTINGS: Settings = { fontSize: 1, width: "narrow" };
+export const DEFAULT_SETTINGS: Settings = { fontSize: 1, width: "narrow", sidebarOpen: true };
 export const WIDTH_CLASS: Record<ContentWidth, string> = { narrow: "max-w-3xl", wide: "max-w-6xl" };
 
 const STORAGE_KEY = "mvm.settings";
@@ -20,7 +20,8 @@ export const parseSettings = (raw: string | null): Settings => {
     const value = JSON.parse(raw) as Partial<Record<keyof Settings, unknown>>;
     const fontSize = value.fontSize === 0 || value.fontSize === 1 || value.fontSize === 2 || value.fontSize === 3 ? value.fontSize : DEFAULT_SETTINGS.fontSize;
     const width = value.width === "narrow" || value.width === "wide" ? value.width : DEFAULT_SETTINGS.width;
-    return { fontSize, width };
+    const sidebarOpen = typeof value.sidebarOpen === "boolean" ? value.sidebarOpen : DEFAULT_SETTINGS.sidebarOpen;
+    return { fontSize, width, sidebarOpen };
   } catch {
     return DEFAULT_SETTINGS;
   }

@@ -10,6 +10,9 @@ type Props = {
   onClose: (id: FileId) => void;
   onOpenFiles: () => void;
   onOpenFolder: () => void;
+  open: boolean;
+  /** 非表示の間に Ctrl+K が押されたとき、表示に切り替える */
+  onRequestOpen: () => void;
 };
 
 type ViewMode = "flat" | "tree";
@@ -65,7 +68,7 @@ const FileRow = ({ entry, active, depth, onSelect, onClose }: RowProps) => (
   </li>
 );
 
-export const Sidebar = ({ tab, files, onSelect, onClose, onOpenFiles, onOpenFolder }: Props) => {
+export const Sidebar = ({ tab, files, onSelect, onClose, onOpenFiles, onOpenFolder, open, onRequestOpen }: Props) => {
   const [view, setView] = useState<ViewMode>(readViewMode);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -75,13 +78,17 @@ export const Sidebar = ({ tab, files, onSelect, onClose, onOpenFiles, onOpenFold
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
+        onRequestOpen();
+        // 非表示 (display: none) の要素にはフォーカスできないため、表示の反映後に移す
+        requestAnimationFrame(() => {
+          searchRef.current?.focus();
+          searchRef.current?.select();
+        });
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [onRequestOpen]);
 
   const entries = useMemo(() => tab.fileIds.flatMap((id) => (files[id] === undefined ? [] : [files[id]])), [tab.fileIds, files]);
   const tree = useMemo(() => buildTree(entries.map((entry) => entry.file)), [entries.map((entry) => entry.file.path).join("\n")]);
@@ -136,7 +143,7 @@ export const Sidebar = ({ tab, files, onSelect, onClose, onOpenFiles, onOpenFold
   const searching = query.trim() !== "";
 
   return (
-    <nav aria-label="開いているファイル" className="flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
+    <nav aria-label="開いているファイル" className={`${open ? "flex" : "hidden"} w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900`}>
       <div className="space-y-2 border-b border-neutral-200 p-2 dark:border-neutral-800">
         <div className="flex gap-1 text-xs">
           <button type="button" onClick={onOpenFiles} className="flex-1 rounded border border-neutral-300 px-2 py-1 hover:bg-neutral-200 dark:border-neutral-700 dark:hover:bg-neutral-800">

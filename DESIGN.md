@@ -138,6 +138,7 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 ## M3 の実装で確定した事項
 
 - 表示設定(文字サイズ4段階、本文幅の狭/広)は `localStorage` の `mvm.settings` に保存する。不正な保存値は項目ごとに既定値へ戻す。本文幅は `max-w-3xl` / `max-w-6xl` で、実際の幅はウィンドウ幅とサイドバー・目次の幅で制限される。
+- サイドバーはヘッダー左端の ☰ ボタンまたは `Ctrl+B`(macOS は `Cmd+B`)で表示/非表示を切り替える。開閉状態は `mvm.settings` の `sidebarOpen` に保存する。非表示の間もアンマウントせず `display: none` にし、検索語とツリーの折りたたみ状態を保つ。非表示中の `Ctrl+K` は表示に戻してから検索欄にフォーカスする。
 - YAML frontmatter は先頭の `---` から次の `---` 行までを分離し、折りたたみ(`<details>`)で表示する。Markdown の変換対象には含めない。閉じ行がない場合は frontmatter として扱わない。
 - Raw 表示は元のテキストをそのまま表示する。文字サイズと本文幅の設定に連動する。
 - コピーは Markdown(元のテキスト)、テキスト(`innerText`)、HTML(`innerHTML`)の3種類。`navigator.clipboard` を使い、使えない場合は `execCommand("copy")` に切り替える。テキストと HTML は Raw 表示中は選択できない。
