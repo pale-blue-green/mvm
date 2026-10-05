@@ -2,6 +2,7 @@
 name = "mvm"
 version = "0.1.0"
 description = "Tauri 製 Markdown ビューア"
+license = "MIT"
 edition = "2021"
 
 [lib]

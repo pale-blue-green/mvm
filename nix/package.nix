@@ -58,6 +58,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   meta = {
     description = "Tauri 製のスタンドアロン Markdown ビューア";
+    license = lib.licenses.mit;
     mainProgram = "mvm";
     platforms = lib.platforms.linux;
   };

@@ -117,9 +117,12 @@ pnpm tauri build --bundles deb    # 形式を指定
 
 ファイルの読み取りは、フロントエンドが渡すパスではなく、Rust 側が登録した ID で行う。Tauri の `fs` プラグインは使っていない。設計の経緯と判断は [DESIGN.md](DESIGN.md) にある。
 
+## ライセンス
+
+[MIT](LICENSE)
+
 ## 制限
 
 - 動作確認は Linux(WebKitGTK)のみ。Windows と macOS は未確認。
 - macOS で Finder からファイルを開く操作(`RunEvent::Opened`)には未対応。
 - コード署名と公証は未設定。
-- ライセンスは未設定。
