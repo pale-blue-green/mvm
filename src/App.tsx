@@ -1,6 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { DocumentToolbar } from "./components/DocumentToolbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar } from "./components/Sidebar";
 import { VIEWER_SCROLL_ID } from "./components/TocPanel";
@@ -8,6 +9,7 @@ import { Viewer } from "./components/Viewer";
 import type { FileId, OpenedFile } from "./domain/types";
 import { closeFile, getStartup, onFileChanged, onOpenFiles, openPaths, readMarkdown, saveSession } from "./lib/ipc";
 import { toSessionPayload } from "./lib/session";
+import { useSettings } from "./lib/settings";
 import { useTheme } from "./lib/theme";
 import { initialState, reducer } from "./state/reducer";
 
@@ -17,6 +19,8 @@ const SESSION_SAVE_DELAY_MS = 300;
 export const App = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { mode, cycle } = useTheme();
+  const { settings, update: updateSettings } = useSettings();
+  const [raw, setRaw] = useState(false);
   const [restored, setRestored] = useState(false);
   const [dragging, setDragging] = useState(false);
   // 同一ファイルの読み込みが重なったとき、最後に発行した結果だけを採用する
@@ -155,16 +159,25 @@ export const App = () => {
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 text-sm dark:border-neutral-800">
-          <span className="truncate text-neutral-500" title={activeEntry?.file.path}>
+          <span className="mr-4 truncate text-neutral-500" title={activeEntry?.file.path}>
             {activeEntry?.file.path ?? ""}
           </span>
-          <button type="button" onClick={cycle} className="shrink-0 rounded px-2 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800">
-            テーマ: {THEME_LABEL[mode]}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <DocumentToolbar
+              settings={settings}
+              onChangeSettings={updateSettings}
+              raw={raw}
+              onToggleRaw={() => setRaw((current) => !current)}
+              markdown={activeEntry?.status === "loaded" ? activeEntry.content : null}
+            />
+            <button type="button" onClick={cycle} className="rounded px-2 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800">
+              テーマ: {THEME_LABEL[mode]}
+            </button>
+          </div>
         </header>
         <main id={VIEWER_SCROLL_ID} className="min-h-0 flex-1 overflow-y-auto">
           <ErrorBoundary resetKey={tab.activeFileId ?? ""}>
-            <Viewer entry={activeEntry} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
+            <Viewer entry={activeEntry} settings={settings} raw={raw} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
           </ErrorBoundary>
         </main>
       </div>

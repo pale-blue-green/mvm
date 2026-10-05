@@ -135,6 +135,20 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - ヘッドレス Wayland(cage)で、ディレクトリの再帰展開、ツリー表示、目次、数式、アラート、Mermaid(正常系と構文エラー)、監視パターンによる新規ファイルの自動追加、2つ目の起動によるファイル追加、セッション復元、検索(`Ctrl+K`)を確認した。
 - ドラッグ&ドロップとファイル選択ダイアログは、ポインタ操作とデスクトップポータルが必要なため未確認。
 
+## M3 の実装で確定した事項
+
+- 表示設定(文字サイズ4段階、本文幅の狭/広)は `localStorage` の `mvm.settings` に保存する。不正な保存値は項目ごとに既定値へ戻す。本文幅は `max-w-3xl` / `max-w-6xl` で、実際の幅はウィンドウ幅とサイドバー・目次の幅で制限される。
+- YAML frontmatter は先頭の `---` から次の `---` 行までを分離し、折りたたみ(`<details>`)で表示する。Markdown の変換対象には含めない。閉じ行がない場合は frontmatter として扱わない。
+- Raw 表示は元のテキストをそのまま表示する。文字サイズと本文幅の設定に連動する。
+- コピーは Markdown(元のテキスト)、テキスト(`innerText`)、HTML(`innerHTML`)の3種類。`navigator.clipboard` を使い、使えない場合は `execCommand("copy")` に切り替える。テキストと HTML は Raw 表示中は選択できない。
+- 画像と Mermaid の図をクリックすると、`react-zoom-pan-pinch` による全画面モーダルで拡大・パンできる。Esc または背景のクリックで閉じる。Mermaid の図はキーボード(Enter)でも開ける。
+- `.md` の関連付けは `bundle.fileAssociations`(`md` / `markdown` / `mdown` / `mkd`、`role: Viewer`)で設定する。
+  - Tauri が生成する `.desktop` は `Exec=mvm` で `%F` が付かず、ファイルマネージャーからの起動でパスが渡らない。`src-tauri/desktop-template.desktop` を `bundle.linux.deb.desktopTemplate` / `rpm.desktopTemplate` に指定し、`Exec={{exec}} %F` としている(deb で生成結果を確認)。
+  - macOS は Finder からの起動時に引数ではなく `RunEvent::Opened` でパスが渡されるため、現状は未対応(関連付けはするが、開いたファイルは表示されない)。
+- CI(`.github/workflows/ci.yml`)は、フロント(型検査、テスト、ビルド)と Rust(clippy `-D warnings`、テスト。Ubuntu / Windows / macOS)を実行する。Rust のビルドには `dist/` が必要なため、先にフロントをビルドする。開発サーバは使わない。
+- リリース(`.github/workflows/release.yml`)は `v*` タグの push で、`tauri-apps/tauri-action` により Ubuntu / Windows / macOS(arm64 と Intel)の配布物をドラフトリリースに添付する。シークレットは `GITHUB_TOKEN` のみ。コード署名と公証は未設定。
+- どちらのワークフローも `actionlint` で検証したが、GitHub 上では未実行。
+
 ## 未検証事項
 
 実装前に context7 または実機で確認する。
@@ -142,5 +156,8 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - `dragDropEnabled` を有効にしたとき、Windows で WebView 内の HTML5 DnD が無効になるか
 - `bundle.fileAssociations` の設定方法
 - ドラッグ&ドロップ(`onDragDropEvent`)とファイル選択ダイアログの実機動作
+- GitHub Actions 上での CI とリリースの実行(AppImage の生成を含む)
+- ファイルマネージャーのダブルクリックで `.md` が開くこと(`.desktop` の内容のみ確認)
+- macOS の `RunEvent::Opened` への対応
 - Windows / macOS での動作(Linux のみ確認)
 - mo の監視ライブラリが fsnotify か fswatcher か(mo の CLAUDE.md と go.mod の記述が食い違っている。ソース未読)

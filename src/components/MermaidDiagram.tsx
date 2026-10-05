@@ -4,7 +4,7 @@ import { useIsDark } from "../lib/theme";
 type State = { status: "pending" } | { status: "ready"; svg: string } | { status: "failed"; message: string };
 
 /** Mermaid 本体は大きいため、最初の図を描画するときに読み込む。 */
-export const MermaidDiagram = ({ source }: { source: string }) => {
+export const MermaidDiagram = ({ source, onZoom }: { source: string; onZoom: (svg: string) => void }) => {
   const dark = useIsDark();
   const id = `mermaid-${useId().replace(/:/g, "")}`;
   const [state, setState] = useState<State>({ status: "pending" });
@@ -42,6 +42,16 @@ export const MermaidDiagram = ({ source }: { source: string }) => {
       );
     case "ready":
       // SVG は mermaid が strict モードで生成・サニタイズしたもの
-      return <div className="mermaid-diagram my-4 flex justify-center overflow-x-auto" dangerouslySetInnerHTML={{ __html: state.svg }} />;
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="図を拡大表示"
+          className="mermaid-diagram my-4 flex justify-center overflow-x-auto"
+          onClick={() => onZoom(state.svg)}
+          onKeyDown={(event) => event.key === "Enter" && onZoom(state.svg)}
+          dangerouslySetInnerHTML={{ __html: state.svg }}
+        />
+      );
   }
 };

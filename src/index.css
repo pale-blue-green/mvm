@@ -70,3 +70,20 @@
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
 }
+
+/* ズームモーダル内。図は元の最大幅指定を外して画面幅に合わせる */
+.zoom-content img {
+  max-width: 90vw;
+  max-height: 90vh;
+  background: white;
+}
+.zoom-content svg {
+  width: 90vw;
+  max-width: none !important;
+  height: auto;
+  max-height: 90vh;
+}
+.prose img,
+.mermaid-diagram {
+  cursor: zoom-in;
+}

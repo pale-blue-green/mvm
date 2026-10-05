@@ -1,18 +1,28 @@
+import { useMemo } from "react";
 import { assertNever, type FileEntry } from "../domain/types";
+import { splitFrontmatter } from "../lib/frontmatter";
 import { MarkdownBody } from "../lib/markdown";
 import { dirname } from "../lib/path";
+import { FONT_SIZES, RAW_FONT_SIZES, type Settings, WIDTH_CLASS } from "../lib/settings";
 import { useMarkdownTree } from "../lib/useMarkdownTree";
+import { ARTICLE_ID } from "./DocumentToolbar";
 import { TocPanel } from "./TocPanel";
 
 type Props = {
   entry: FileEntry | null;
+  settings: Settings;
+  raw: boolean;
   onOpenRelative: (baseDir: string, path: string) => void;
 };
 
 const Message = ({ children }: { children: string }) => <p className="p-8 text-neutral-500">{children}</p>;
 
-const LoadedDocument = ({ content, baseDir, onOpenRelative }: { content: string; baseDir: string; onOpenRelative: (path: string) => void }) => {
-  const rendered = useMarkdownTree(content);
+type DocumentProps = { content: string; baseDir: string; settings: Settings; onOpenRelative: (path: string) => void };
+
+const LoadedDocument = ({ content, baseDir, settings, onOpenRelative }: DocumentProps) => {
+  // frontmatter は本文と別に折りたたみ表示し、Markdown の変換対象から外す
+  const { frontmatter, body } = useMemo(() => splitFrontmatter(content), [content]);
+  const rendered = useMarkdownTree(body);
   switch (rendered.status) {
     case "pending":
       return null;
@@ -21,16 +31,24 @@ const LoadedDocument = ({ content, baseDir, onOpenRelative }: { content: string;
     case "ready":
       return (
         <div className="mx-auto flex max-w-7xl justify-center gap-6 px-8 py-6">
-          <article className="prose prose-neutral dark:prose-invert min-w-0 max-w-4xl flex-1">
-            <MarkdownBody tree={rendered.tree} baseDir={baseDir} onOpenRelative={onOpenRelative} />
-          </article>
+          <div className={`min-w-0 flex-1 ${WIDTH_CLASS[settings.width]}`}>
+            {frontmatter !== null && (
+              <details className="mb-6 rounded border border-neutral-200 text-sm dark:border-neutral-800">
+                <summary className="cursor-pointer px-3 py-1.5 text-neutral-500">frontmatter</summary>
+                <pre className="overflow-x-auto border-t border-neutral-200 p-3 dark:border-neutral-800">{frontmatter}</pre>
+              </details>
+            )}
+            <article id={ARTICLE_ID} className={`prose ${FONT_SIZES[settings.fontSize]} prose-neutral dark:prose-invert max-w-none`}>
+              <MarkdownBody tree={rendered.tree} baseDir={baseDir} onOpenRelative={onOpenRelative} />
+            </article>
+          </div>
           <TocPanel headings={rendered.headings} />
         </div>
       );
   }
 };
 
-export const Viewer = ({ entry, onOpenRelative }: Props) => {
+export const Viewer = ({ entry, settings, raw, onOpenRelative }: Props) => {
   if (entry === null) {
     return <Message>ファイルが開かれていません。`mvm file.md` で起動するか、ファイルをドロップしてください。</Message>;
   }
@@ -42,8 +60,15 @@ export const Viewer = ({ entry, onOpenRelative }: Props) => {
     case "error":
       return <Message>{`${entry.file.path} を読み込めません: ${entry.message}`}</Message>;
     case "loaded": {
+      if (raw) {
+        return (
+          <pre data-testid="raw-view" className={`mx-auto whitespace-pre-wrap break-words px-8 py-6 font-mono ${RAW_FONT_SIZES[settings.fontSize]} ${WIDTH_CLASS[settings.width]}`}>
+            {entry.content}
+          </pre>
+        );
+      }
       const baseDir = dirname(entry.file.path);
-      return <LoadedDocument content={entry.content} baseDir={baseDir} onOpenRelative={(path) => onOpenRelative(baseDir, path)} />;
+      return <LoadedDocument content={entry.content} baseDir={baseDir} settings={settings} onOpenRelative={(path) => onOpenRelative(baseDir, path)} />;
     }
     default:
       return assertNever(entry);
