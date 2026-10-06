@@ -7,5 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
-  test: { environment: "node", include: ["src/**/*.test.ts"] },
+  // 変換パイプラインのテストは、最初の呼び出しで Shiki の初期化 (WASM と文法の読み込み) を含む。
+  // CI のランナーでは既定の 5 秒を超えることがある
+  test: { environment: "node", include: ["src/**/*.test.ts"], testTimeout: 30_000 },
 });
