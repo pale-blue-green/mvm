@@ -143,7 +143,7 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - YAML frontmatter は先頭の `---` から次の `---` 行までを分離し、折りたたみ(`<details>`)で表示する。Markdown の変換対象には含めない。閉じ行がない場合は frontmatter として扱わない。
 - Raw 表示は元のテキストをそのまま表示する。文字サイズと本文幅の設定に連動する。
 - コピーは Markdown(元のテキスト)、テキスト(`innerText`)、HTML(`innerHTML`)の3種類。`navigator.clipboard` を使い、使えない場合は `execCommand("copy")` に切り替える。テキストと HTML は Raw 表示中は選択できない。
-- 画像と Mermaid の図をクリックすると、`react-zoom-pan-pinch` による全画面モーダルで拡大・パンできる。Esc または背景のクリックで閉じる。Mermaid の図はキーボード(Enter)でも開ける。
+- 画像と Mermaid の図をクリックすると、`react-zoom-pan-pinch` による全画面モーダルで拡大・パンできる。Esc または背景のクリックで閉じる。Mermaid の図はキーボード(Enter)でも開ける。図は背景が透明なため、半透明の背景越しにページが重なると線が見えなくなる。図は不透明なパネル(ライトは白、ダークは `neutral-900`。Mermaid の配色がテーマに追従するため、線とパネルのコントラストが保たれる)に載せる。
 - `.md` の関連付けは `bundle.fileAssociations`(`md` / `markdown` / `mdown` / `mkd`、`role: Viewer`)で設定する。
   - Tauri が生成する `.desktop` は `Exec=mvm` で `%F` が付かず、ファイルマネージャーからの起動でパスが渡らない。`src-tauri/desktop-template.desktop` を `bundle.linux.deb.desktopTemplate` / `rpm.desktopTemplate` に指定し、`Exec={{exec}} %F` としている(deb で生成結果を確認)。
   - macOS は Finder からの起動時に引数ではなく `RunEvent::Opened` でパスが渡されるため、現状は未対応(関連付けはするが、開いたファイルは表示されない)。

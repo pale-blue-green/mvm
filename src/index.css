@@ -78,10 +78,10 @@
   background: white;
 }
 .zoom-content svg {
-  width: 90vw;
+  width: 80vw;
   max-width: none !important;
   height: auto;
-  max-height: 90vh;
+  max-height: 80vh;
 }
 .prose img,
 .mermaid-diagram {

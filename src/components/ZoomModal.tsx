@@ -31,8 +31,11 @@ export const ZoomModal = ({ children, label, onClose }: Props) => {
               ))}
             </div>
             <TransformComponent wrapperStyle={{ width: "100%", height: "100%" }}>
-              <div className="zoom-content flex h-screen w-screen items-center justify-center" onClick={(event) => event.stopPropagation()}>
-                {children}
+              <div className="zoom-content flex h-screen w-screen items-center justify-center">
+                {/* 図は背景が透明で、半透明の背景越しにページが重なると線が見えなくなる。テーマ(Mermaid の配色と同じ)に合わせた不透明なパネルに載せる */}
+                <div className="zoom-panel rounded bg-white p-6 dark:bg-neutral-900" onClick={(event) => event.stopPropagation()}>
+                  {children}
+                </div>
               </div>
             </TransformComponent>
           </>
