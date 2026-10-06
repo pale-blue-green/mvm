@@ -9,6 +9,7 @@ import { Viewer } from "./components/Viewer";
 import type { FileId, OpenedFile } from "./domain/types";
 import { closeFile, getStartup, onFileChanged, onOpenFiles, openPaths, readMarkdown, saveSession } from "./lib/ipc";
 import { toSessionPayload } from "./lib/session";
+import { useScrollMemory } from "./lib/scrollMemory";
 import { useSettings } from "./lib/settings";
 import { useTheme } from "./lib/theme";
 import { initialState, reducer } from "./state/reducer";
@@ -23,6 +24,10 @@ export const App = () => {
   const [raw, setRaw] = useState(false);
   const [restored, setRestored] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const scrollRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // ファイルごとにスクロール位置を覚える (フック呼び出しは早期 return より前に置く)
+  useScrollMemory(scrollRef, contentRef, state.tabs.find((candidate) => candidate.id === state.activeTabId)?.activeFileId ?? null);
   // 同一ファイルの読み込みが重なったとき、最後に発行した結果だけを採用する
   const latestRequest = useRef(new Map<FileId, number>());
   const requestSeq = useRef(0);
@@ -203,10 +208,12 @@ export const App = () => {
             </button>
           </div>
         </header>
-        <main id={VIEWER_SCROLL_ID} className="min-h-0 flex-1 overflow-y-auto">
-          <ErrorBoundary resetKey={tab.activeFileId ?? ""}>
-            <Viewer entry={activeEntry} settings={settings} raw={raw} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
-          </ErrorBoundary>
+        <main ref={scrollRef} id={VIEWER_SCROLL_ID} className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={contentRef}>
+            <ErrorBoundary resetKey={tab.activeFileId ?? ""}>
+              <Viewer entry={activeEntry} settings={settings} raw={raw} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
+            </ErrorBoundary>
+          </div>
         </main>
       </div>
       {dragging && (
