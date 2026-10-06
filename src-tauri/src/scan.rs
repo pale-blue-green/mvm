@@ -1,6 +1,6 @@
 //! CLI 引数の解釈と、ファイル・ディレクトリ・glob の展開。
 
-use crate::pattern::{is_markdown, is_skipped_dir, WatchPattern, MAX_FILES_PER_EXPANSION};
+use crate::pattern::{is_skipped_dir, is_viewable, WatchPattern, MAX_FILES_PER_EXPANSION};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -141,7 +141,7 @@ fn walk(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>) {
             }
         } else if (file_type.is_file() || file_type.is_symlink())
             && path.is_file()
-            && is_markdown(&path)
+            && is_viewable(&path)
         {
             found.push(path);
         }

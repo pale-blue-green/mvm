@@ -31,7 +31,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     inherit (finalAttrs) pname version src;
     inherit pnpm;
     fetcherVersion = 4;
-    hash = "sha256-vC2gUta25IOIA34w8gnTvWVuRrLXu81cb9KShguFQg0=";
+    hash = "sha256-/pkQE3JnML6IwEDdvsmGfibpigja5yHnfLGhWRRD9qM=";
   };
 
   cargoRoot = "src-tauri";

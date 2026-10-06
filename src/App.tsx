@@ -7,7 +7,7 @@ import { Sidebar } from "./components/Sidebar";
 import { VIEWER_SCROLL_ID } from "./components/TocPanel";
 import { Viewer } from "./components/Viewer";
 import type { FileId, OpenedFile } from "./domain/types";
-import { closeFile, getStartup, onFileChanged, onOpenFiles, openPaths, readMarkdown, saveSession } from "./lib/ipc";
+import { closeFile, getStartup, onFileChanged, onOpenFiles, openPaths, readBytes, readMarkdown, saveSession } from "./lib/ipc";
 import { toSessionPayload } from "./lib/session";
 import { useScrollMemory } from "./lib/scrollMemory";
 import { useSettings } from "./lib/settings";
@@ -32,14 +32,25 @@ export const App = () => {
   const latestRequest = useRef(new Map<FileId, number>());
   const requestSeq = useRef(0);
 
+  // xlsx はバイト列で読み、それ以外 (Markdown) は文字列で読む
+  const binaryIds = useRef(new Set<FileId>());
+  const track = useCallback((files: OpenedFile[]) => {
+    for (const file of files) {
+      if (/\.xlsx$/i.test(file.name)) binaryIds.current.add(file.id);
+      else binaryIds.current.delete(file.id);
+    }
+  }, []);
+
   const load = useCallback(async (id: FileId) => {
     const seq = ++requestSeq.current;
     latestRequest.current.set(id, seq);
-    const result = await readMarkdown(id);
+    const binary = binaryIds.current.has(id);
+    const result = binary ? await readBytes(id) : await readMarkdown(id);
     if (latestRequest.current.get(id) !== seq) return;
     switch (result.kind) {
       case "ok":
-        dispatch({ type: "fileLoaded", id, content: result.content });
+        if ("bytes" in result) dispatch({ type: "fileLoadedBinary", id, bytes: result.bytes });
+        else dispatch({ type: "fileLoaded", id, content: result.content });
         break;
       case "missing":
         dispatch({ type: "fileMissing", id });
@@ -53,10 +64,11 @@ export const App = () => {
   const openFiles = useCallback(
     (files: OpenedFile[]) => {
       if (files.length === 0) return;
+      track(files);
       dispatch({ type: "filesOpened", files });
       for (const file of files) void load(file.id);
     },
-    [load],
+    [load, track],
   );
 
   useEffect(() => {
@@ -65,6 +77,7 @@ export const App = () => {
 
     const setup = async () => {
       const unlistenOpen = await onOpenFiles((event) => {
+        track(event.files);
         dispatch({ type: "filesOpened", files: event.files, tabId: event.tabId, select: event.select });
         for (const file of event.files) void load(file.id);
       });
@@ -97,6 +110,7 @@ export const App = () => {
       // リスナー登録後に取得する。起動引数のファイルを取りこぼさない。
       // StrictMode の再マウントで2回呼ばれても、Rust は同じ内容を返す
       const startup = await getStartup();
+      track(startup.files);
       dispatch({ type: "sessionRestored", tabs: startup.tabs, activeTabId: startup.activeTabId, files: startup.files });
       for (const file of startup.files) void load(file.id);
       openFiles(startup.cliFiles);
@@ -108,7 +122,7 @@ export const App = () => {
       disposed = true;
       for (const unlisten of unlisteners) unlisten();
     };
-  }, [load, openFiles]);
+  }, [load, openFiles, track]);
 
   // 復元が終わる前に保存すると、保存済みセッションを空の状態で上書きしてしまう
   const lastSaved = useRef("");
@@ -134,7 +148,7 @@ export const App = () => {
       const selected = await open({
         multiple: !directory,
         directory,
-        filters: directory ? undefined : [{ name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd"] }],
+        filters: directory ? undefined : [{ name: "Markdown / Excel", extensions: ["md", "markdown", "mdown", "mkd", "xlsx"] }],
       });
       if (selected === null) return;
       const paths = Array.isArray(selected) ? selected : [selected];
@@ -209,7 +223,7 @@ export const App = () => {
           </div>
         </header>
         <main ref={scrollRef} id={VIEWER_SCROLL_ID} className="min-h-0 flex-1 overflow-y-auto">
-          <div ref={contentRef}>
+          <div ref={contentRef} className="h-full">
             <ErrorBoundary resetKey={tab.activeFileId ?? ""}>
               <Viewer entry={activeEntry} settings={settings} raw={raw} onOpenRelative={(baseDir, path) => void openRelative(baseDir, path)} />
             </ErrorBoundary>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Suspense, lazy, useMemo } from "react";
 import { assertNever, type FileEntry } from "../domain/types";
 import { splitFrontmatter } from "../lib/frontmatter";
 import { MarkdownBody } from "../lib/markdown";
@@ -7,6 +7,8 @@ import { FONT_SIZES, RAW_FONT_SIZES, type Settings, WIDTH_CLASS } from "../lib/s
 import { useMarkdownTree } from "../lib/useMarkdownTree";
 import { ARTICLE_ID } from "./DocumentToolbar";
 import { TocPanel } from "./TocPanel";
+// Excel の解析・描画は、xlsx を開くときだけ読み込む
+const XlsxView = lazy(async () => ({ default: (await import("./XlsxView")).XlsxView }));
 
 type Props = {
   entry: FileEntry | null;
@@ -59,6 +61,12 @@ export const Viewer = ({ entry, settings, raw, onOpenRelative }: Props) => {
       return <Message>{`${entry.file.path} は存在しません。`}</Message>;
     case "error":
       return <Message>{`${entry.file.path} を読み込めません: ${entry.message}`}</Message>;
+    case "loadedBinary":
+      return (
+        <Suspense fallback={<Message>Excel を読み込み中…</Message>}>
+          <XlsxView bytes={entry.bytes} />
+        </Suspense>
+      );
     case "loaded": {
       if (raw) {
         return (

@@ -4,16 +4,24 @@ use glob::MatchOptions;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-pub const MARKDOWN_EXTENSIONS: [&str; 4] = ["md", "markdown", "mdown", "mkd"];
+/// ビューアで開ける拡張子 (Markdown と Excel)
+pub const VIEWABLE_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "xlsx"];
 /// ディレクトリ走査で辿らない名前 (隠しディレクトリは別途除外する)
 const SKIPPED_DIRS: [&str; 2] = ["node_modules", "target"];
 /// 1回の展開で開くファイル数の上限。巨大なツリーを誤って指定したときの保護
 pub const MAX_FILES_PER_EXPANSION: usize = 1000;
 
-pub fn is_markdown(path: &Path) -> bool {
+pub fn is_viewable(path: &Path) -> bool {
+    // Excel が開いている間に作る一時ファイル (~$name.xlsx) は対象外
+    if path
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with("~$"))
+    {
+        return false;
+    }
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| MARKDOWN_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        .is_some_and(|ext| VIEWABLE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
 }
 
 pub fn is_skipped_dir(name: &str) -> bool {
@@ -43,7 +51,7 @@ impl WatchPattern {
                     },
                 )
             }),
-            None => is_markdown(path) && self.is_in_scope(path),
+            None => is_viewable(path) && self.is_in_scope(path),
         }
     }
 
@@ -77,11 +85,13 @@ mod tests {
 
     #[test]
     fn markdown_extension_is_case_insensitive() {
-        assert!(is_markdown(Path::new("/a/B.MD")));
-        assert!(is_markdown(Path::new("/a/b.markdown")));
-        assert!(!is_markdown(Path::new("/a/b.md~")));
-        assert!(!is_markdown(Path::new("/a/b.txt")));
-        assert!(!is_markdown(Path::new("/a/README")));
+        assert!(is_viewable(Path::new("/a/B.MD")));
+        assert!(is_viewable(Path::new("/a/b.markdown")));
+        assert!(!is_viewable(Path::new("/a/b.md~")));
+        assert!(!is_viewable(Path::new("/a/b.txt")));
+        assert!(is_viewable(Path::new("/a/b.XLSX")));
+        assert!(!is_viewable(Path::new("/a/~$b.xlsx")));
+        assert!(!is_viewable(Path::new("/a/README")));
     }
 
     #[test]

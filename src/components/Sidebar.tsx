@@ -31,6 +31,7 @@ const statusMark = (entry: FileEntry): string => {
     case "loading":
       return "…";
     case "loaded":
+    case "loadedBinary":
       return "";
     case "missing":
       return "削除済み";

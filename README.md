@@ -14,11 +14,13 @@ Tauri v2 で作ったスタンドアロンの Markdown ビューア。[k1LoW/mo]
 - ドラッグ&ドロップ、ファイル/フォルダ選択ダイアログ
 - 再起動時に開いていたファイルを復元
 - 起動中に `mvm` を再実行すると、既存のウィンドウにファイルを追加
+- Excel(`.xlsx`)の表示: セルの表(値・数値書式・罫線・塗り・結合)に加えて、図形・コネクタ(矢印)・グループ・画像を SVG で描画する。シート切替、拡大縮小、ドラッグでの移動に対応
 
 ## 使い方
 
 ```sh
 mvm README.md                 # ファイルを開く
+mvm 業務フロー.xlsx            # Excel を開く(図形も表示する)
 mvm a.md b.md                 # 複数のファイル
 mvm docs/                     # ディレクトリ直下の Markdown
 mvm -R docs/                  # 再帰的に展開
@@ -31,7 +33,7 @@ mvm 'docs/**/*.md'            # glob(シェルに展開させないよう引用�
 | `-R`, `--recursive` | ディレクトリを再帰的に展開する |
 | `-w`, `--watch` | 展開元(ディレクトリ・glob)を監視パターンとして登録し、一致する新規ファイルを自動で開く |
 
-- ディレクトリの展開対象は `md` / `markdown` / `mdown` / `mkd`。`.` で始まるディレクトリ、`node_modules`、`target` は辿らない。1回の展開で開くのは1000ファイルまで。
+- ディレクトリの展開対象は `md` / `markdown` / `mdown` / `mkd` / `xlsx`(Excel の一時ファイル `~$*.xlsx` は除く)。`.` で始まるディレクトリ、`node_modules`、`target` は辿らない。1回の展開で開くのは1000ファイルまで。
 - 閉じたファイルは、監視パターンが再度開かない。
 - セッション(開いているファイル、選択中のファイル、監視パターン)は、アプリのデータディレクトリの `session.json` に保存する。Linux では `~/.local/share/com.tsukasa-ind.mvm/session.json`。監視パターンを解除する UI はまだないため、解除するには `session.json` の `patterns` を編集する。
 
@@ -71,8 +73,23 @@ NixOS や home-manager では、flake の入力に追加して `overlays.default
 
 - ビルドは `nix/package.nix`(`rustPlatform.buildRustPackage` + `cargo-tauri.hook` + `fetchPnpmDeps`)で行う。deb 形式でバンドルした `.desktop` とアイコンも `share/` に入る。
 - ソースは flake の `self`(Git で追跡しているファイルのみ)。新しいファイルを追加したら `git add` してからビルドする。
-- `pnpm-lock.yaml` を更新したら、`nix/package.nix` の `pnpmDeps.hash` を更新する。`hash = lib.fakeHash;` にしてビルドすると、エラーに正しい値(`got:`)が表示される。
+- `pnpm-lock.yaml` を更新したら、`nix/package.nix` の `pnpmDeps.hash` を更新する。`hash = lib.fakeHash;` にしてビルドすると、エラーに正しい値(`got:`)が表示される。CI の `nix` ジョブが `nix build .#default` を実行し、更新漏れを検出する。
 - ビルド中に `cargo test` が実行される。
+
+### `inputs.nixpkgs.follows` を付けない
+
+`pnpmDeps.hash` は、pnpm の store を作った pnpm のバージョンに依存する(同じ `pnpm-lock.yaml` でも、pnpm のバージョンが違うと store の内容が変わる)。この hash は、mvm の `flake.lock` が指す nixpkgs(2026-10 時点で nixos-unstable、pnpm 12.9.0)で算出している。
+
+利用側が `mvm.inputs.nixpkgs.follows = "nixpkgs"` で自分の nixpkgs に揃えると、pnpm のバージョンが違う場合に `hash mismatch in fixed-output derivation` でビルドが失敗する(例: nixos-26.05 の先頭は pnpm 11.27.0)。
+
+- 推奨: `follows` を付けず、mvm の nixpkgs をそのまま使う。
+- `follows` を付ける場合は、利用側で hash を差し替える。`nix flake update` で nixpkgs や mvm を更新するたびに、貼り直しが必要になる。
+
+```nix
+mvm-pkg = mvm.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs (old: {
+  pnpmDeps = old.pnpmDeps.override { hash = "sha256-<エラーの got の値>"; };
+});
+```
 
 ## 開発
 
@@ -122,6 +139,9 @@ pnpm tauri build --bundles deb    # 形式を指定
 [MIT](LICENSE)
 
 ## 制限
+
+- Excel: グラフ(`.xlsx` 内のグラフ)、SmartArt、条件付き書式、セル内の部分的な書式(リッチテキスト)は表示しない。`.xls` と `.xlsm` は対象外。本文の検索は Markdown のみで、Excel はファイル名だけが対象。
+- Excel の図形は、図形の種類ごとに SVG で描く。`rect`、`ellipse`、`roundRect`、`triangle`、`diamond`、フローチャートの各種、折れ線コネクタ、吹き出し(`wedgeRectCallout` / `wedgeRoundRectCallout`)など18種に対応し、未対応の種類は外接する矩形で代用して件数をツールバーに表示する。Excel と同じフォント(Meiryo UI など)がない環境では、代替フォントになり、文字の折り返し位置が変わる。
 
 - GUI の動作確認は Linux(WebKitGTK)のみ。Windows と macOS は、CI でビルド・clippy・テストが通ることまで確認している。
 - macOS で Finder からファイルを開く操作(`RunEvent::Opened`)には未対応。

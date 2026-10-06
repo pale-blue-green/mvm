@@ -15,6 +15,7 @@ export type OpenedFile = {
 export type FileEntry =
   | { status: "loading"; file: OpenedFile }
   | { status: "loaded"; file: OpenedFile; content: string }
+  | { status: "loadedBinary"; file: OpenedFile; bytes: Uint8Array }
   | { status: "missing"; file: OpenedFile }
   | { status: "error"; file: OpenedFile; message: string };
 

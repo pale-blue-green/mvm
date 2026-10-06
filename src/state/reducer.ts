@@ -4,6 +4,7 @@ export type Action =
   | { type: "sessionRestored"; tabs: Tab[]; activeTabId: TabId; files: OpenedFile[] }
   | { type: "filesOpened"; files: OpenedFile[]; tabId?: TabId; select?: boolean }
   | { type: "fileLoaded"; id: FileId; content: string }
+  | { type: "fileLoadedBinary"; id: FileId; bytes: Uint8Array }
   | { type: "fileMissing"; id: FileId }
   | { type: "fileFailed"; id: FileId; message: string }
   | { type: "fileSelected"; id: FileId }
@@ -49,6 +50,10 @@ export const reducer = (state: AppState, action: Action): AppState => {
     case "fileLoaded": {
       const entry = state.files[action.id];
       return entry === undefined ? state : updateFile(state, action.id, { status: "loaded", file: entry.file, content: action.content });
+    }
+    case "fileLoadedBinary": {
+      const entry = state.files[action.id];
+      return entry === undefined ? state : updateFile(state, action.id, { status: "loadedBinary", file: entry.file, bytes: action.bytes });
     }
     case "fileMissing": {
       const entry = state.files[action.id];

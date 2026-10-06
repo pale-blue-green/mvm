@@ -31,6 +31,17 @@ export const readMarkdown = async (id: FileId): Promise<ReadResult> => {
 
 export type OpenFilesEvent = { files: OpenedFile[]; tabId?: TabId; select: boolean };
 
+export type ReadBytesResult = { kind: "ok"; bytes: Uint8Array } | { kind: "missing" } | { kind: "failed"; message: string };
+
+export const readBytes = async (id: FileId): Promise<ReadBytesResult> => {
+  try {
+    return { kind: "ok", bytes: new Uint8Array(await invoke<ArrayBuffer>("read_bytes", { id })) };
+  } catch (error) {
+    const payload = error as ReadErrorPayload;
+    return payload.kind === "missing" ? { kind: "missing" } : { kind: "failed", message: payload.message ?? String(error) };
+  }
+};
+
 export const onOpenFiles = (handler: (event: OpenFilesEvent) => void): Promise<UnlistenFn> =>
   listen<OpenFilesEvent>("open-files", (event) => handler(event.payload));
 

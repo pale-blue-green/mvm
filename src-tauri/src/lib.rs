@@ -267,6 +267,20 @@ fn read_markdown(state: State<'_, AppState>, id: String) -> Result<String, ReadE
     })
 }
 
+/// Excel などバイナリのファイルを、そのままのバイト列で返す (JSON の数値配列にしない)。
+#[tauri::command]
+fn read_bytes(state: State<'_, AppState>, id: String) -> Result<tauri::ipc::Response, ReadError> {
+    let path = state.registry.get(&id).ok_or(ReadError::Missing)?;
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::NotFound => ReadError::Missing,
+            _ => ReadError::Failed {
+                message: err.to_string(),
+            },
+        })
+}
+
 #[tauri::command]
 fn close_file(state: State<'_, AppState>, id: String) {
     if let Some(path) = state.registry.remove(&id) {
@@ -357,6 +371,7 @@ pub fn run() {
             get_startup,
             open_paths,
             read_markdown,
+            read_bytes,
             close_file,
             save_session
         ])

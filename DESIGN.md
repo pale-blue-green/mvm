@@ -151,6 +151,48 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - リリース(`.github/workflows/release.yml`)は `v*` タグの push で、`tauri-apps/tauri-action` により Ubuntu / Windows / macOS(arm64 と Intel)の配布物をドラフトリリースに添付する。シークレットは `GITHUB_TOKEN` のみ。コード署名と公証は未設定。
 - どちらのワークフローも `actionlint` で検証したが、GitHub 上では未実行。
 
+## Excel(.xlsx)の表示
+
+### 方針
+
+対象の設計資料(業務フロー図)は、セルがほぼ空で、内容の大半が図形(`xdr:sp` / `xdr:cxnSp` / `xdr:pic`)である。ExcelJS は描画の配置を解釈する処理が画像(`xdr:pic`)だけで、図形とグラフを読み捨てるため、`xl/drawings/drawingN.xml`(DrawingML)を自前で解析して SVG に描画する。
+
+### 構成
+
+- Rust: `read_bytes(id)` が、バイト列を `tauri::ipc::Response` で返す(JSON の数値配列にしない)。ファイル種別の判定は拡張子(`xlsx`)で、Markdown は従来どおり `read_markdown`。登録・監視・セッションは Markdown と共通で、ディレクトリの展開対象にも `xlsx` を加えた。Excel の一時ファイル(`~$name.xlsx`)は除く。
+- フロント(`src/lib/xlsx/`): zip の展開に `fflate`、XML の解析に `@xmldom/xmldom` を使う(ブラウザの `DOMParser` ではなく xmldom にして、vitest(Node)でも同じ実装で検証できるようにした)。`xml.ts`(名前空間の接頭辞を無視する走査)、`color.ts`、`theme.ts`、`styles.ts`、`numfmt.ts`、`sheet.ts`(セル・列幅・行高・結合)、`layout.ts`(座標)、`drawing.ts`(図形)、`geometry.ts`(プリセット図形の SVG パス。純関数)、`workbook.ts`(zip 全体)。
+- 表示: `SheetSvg.tsx` がシート全体を 1 つの SVG に描き、`XlsxView.tsx` がシートのタブ、拡大縮小、ドラッグでの移動を持つ。テキストは SVG の `<text>` ではなく `<foreignObject>` に HTML を置き、折り返し・揃え・縦書きをブラウザに任せる。`XlsxView` は xlsx を開くときだけ読み込む(別チャンク約 125KB)。
+
+### 座標と寸法
+
+- 図形の位置は、アンカー(`from` / `to` のセルと EMU のオフセット)から求める。列幅は文字数なので、`px = round(width × mdw)`(mdw は既定フォントの最大桁幅)。mdw は、既定フォントが Calibri・Arial などなら 7、それ以外(Meiryo UI、游ゴシック)は 8 とした。13 ファイルで、図形の絶対座標(`xfrm`)とアンカーから求めた位置の差が最小になる値(8)を選んだ。行高は `pt × 96/72`。
+- 回転した図形のアンカーは、回転後の外接矩形になる。`xfrm` の `ext` は回転前の大きさなので、外接矩形との拡縮比で補正した回転前の矩形を、アンカーの中心に置く(`unrotatedRect`)。補正しないと、90° 回転したコネクタが 90° 倒れた長さで描かれる。
+- グループの子は、`chOff` / `chExt` の座標系から、グループの絶対矩形への変換で配置する(入れ子に対応)。
+- 回転と反転は、図形の中心を基準にした SVG の変換で表す。テキストは反転させず、反転した図形に対しては、テキスト領域だけを鏡像の位置に置く。
+
+### スタイル
+
+- 図形の塗りと線は、`spPr` の指定を優先し、なければ `xdr:style` の参照(`fillRef` / `lnRef` / `fontRef`)の色を使う。線幅は、`ln@w` がなければテーマの `lnStyleLst` の `lnRef idx` 番目。
+- 色は `srgbClr` / `schemeClr` / `sysClr` / `prstClr` に対応し、変換 `lumMod` / `lumOff`(HSL の明度)、`tint`、`shade`、`alpha` を文書順に適用する。
+- 矢印の端点は、色・種類・大きさの組ごとに SVG の `<marker>` を作る(`context-stroke` に依存しない)。
+- 縦書きは、`vert` が文字を 90° 回転、`eaVert` が日本語の縦書き、`vert270` が 270° 回転で、CSS の `writing-mode` と `text-orientation` に対応させる。
+- 初期倍率は、シートに保存された `zoomScale` を使い、なければ幅に合わせる。ファイルが更新されて再読み込みされたときは、選択中のシートと倍率を保つ。
+
+### 対応範囲と制約
+
+- 図形は 18 種類(`rect`、`roundRect`、`ellipse`、`triangle`、`diamond`、`flowChartInputOutput`、`flowChartDocument`、`flowChartMagneticDisk`、`foldedCorner`、`wedgeRectCallout`、`wedgeRoundRectCallout`、`arc`、`line`、`straightConnector1`、`bentConnector2` から `5`)。サンプル 13 ファイルの図形をすべて含む。未対応の種類は外接する矩形で代用し、種類と個数をツールバーに出す。
+- 画像は PNG / JPEG / GIF / SVG / BMP / WebP に対応する。Excel は PNG を本体にし、SVG を拡張(`svgBlip`)に持つため、SVG があれば優先する。EMF / WMF は対象外。
+- 未対応: グラフ(`graphicFrame`)、SmartArt、条件付き書式、セル内のリッチテキスト(プレーンテキストで表示)、ウィンドウ枠の固定、パターン塗りと画像塗り(パターンは前景色の単色で近似、画像塗りは塗りなし)、セルのグラデーション塗り(先頭の色の単色)、`.xls` と `.xlsm`。
+- 本文の検索は Markdown のみ。Excel はファイル名が対象。
+- Excel のフォント(Meiryo UI など)がない環境では代替フォントになり、文字の折り返し位置が変わる。折り返しやクリップは再現せず、図形の外にはみ出した文字はそのまま表示する。
+
+### 検証
+
+- 単体テスト: 幾何(`geometry.test.ts`)、数値書式、色、回転図形の補正、合成した xlsx(`workbook.test.ts`。zip を `fflate` で組み立て、結合・グループ変換・回転コネクタ・画像・未対応図形の報告を検証)。
+- 実ファイル: `samples.test.ts` は、環境変数 `XLSX_SAMPLES` にフォルダを指定したときだけ実行する(資料は非公開で、リポジトリに含めない)。13 ファイルの全シートが例外なく解析でき、図形の個数が XML の集計と一致した(例: 1 シートのファイルで 649 + 263 + 51 = 963)。
+- 実機(ヘッドレス Wayland): 3 ファイルを表示して確認した。LibreOffice で PDF に変換した出力とも目視で比較した。回転したコネクタの位置、縦書きの向き、再読み込み時の状態保持は、この確認で見つかった不具合を修正した。
+- 実機で確認していない: Windows と macOS での表示、Excel 本体との画素単位の比較。
+
 ## 未検証事項
 
 実装前に context7 または実機で確認する。
@@ -162,4 +204,5 @@ Windows 向けビルドは WSL の UNC パス上で行うとコンパイルが�
 - ファイルマネージャーのダブルクリックで `.md` が開くこと(`.desktop` の内容のみ確認)
 - macOS の `RunEvent::Opened` への対応
 - Windows / macOS での GUI の動作(CI でビルドとテストのみ確認。Linux 以外では起動して確認していない)
+- Excel: 図形・グラフ・SmartArt を含む他の資料での再現度(確認したのは業務フロー図 13 ファイルのみ)
 - mo の監視ライブラリが fsnotify か fswatcher か(mo の CLAUDE.md と go.mod の記述が食い違っている。ソース未読)
