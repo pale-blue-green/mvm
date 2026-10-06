@@ -55,13 +55,13 @@ nix profile install .          # ユーザー環境にインストール
 nix build .                    # ./result/bin/mvm を作る
 ```
 
-リモートの flake として使う場合は、`.` を `github:<owner>/mvm` などのフレーク参照に置き換える。
+リモートの flake として使う場合は、`.` を `github:tsukasa-ind/mvm` などのフレーク参照に置き換える。
 
 NixOS や home-manager では、flake の入力に追加して `overlays.default` を適用するか、`packages.${system}.default` を直接参照する。
 
 ```nix
 {
-  inputs.mvm.url = "path:/path/to/mvm"; # または github:<owner>/mvm
+  inputs.mvm.url = "path:/path/to/mvm"; # または github:tsukasa-ind/mvm
   # ...
   # nixpkgs.overlays = [ inputs.mvm.overlays.default ];
   # environment.systemPackages = [ pkgs.mvm ];   # overlay を適用した場合
