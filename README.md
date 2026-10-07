@@ -84,6 +84,8 @@ NixOS や home-manager では、flake の入力に追加して `overlays.default
 
 - 推奨: `follows` を付けず、mvm の nixpkgs をそのまま使う。
 - `follows` を付ける場合は、利用側で hash を差し替える。`nix flake update` で nixpkgs や mvm を更新するたびに、貼り直しが必要になる。
+- 利用側の pnpm のバージョンは、`flake.lock` の `.nodes.root.inputs.nixpkgs` が指すノードの rev で確認する。`.nodes.nixpkgs` は他の input だけが参照する別ノードのことがある。
+- CI の `nix build .#default` は mvm の `flake.lock` の nixpkgs でビルドするため、`follows` を付けた場合の hash のずれは検出しない。
 
 ```nix
 mvm-pkg = mvm.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs (old: {
